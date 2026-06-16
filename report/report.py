@@ -182,6 +182,13 @@ def render_html(result: dict, branding: dict) -> str:
 
   <div class="section">
     <h2>Market-Derived Adjustments</h2>
+    <p style="font-size:12px;color:#666;margin-top:-4px;">
+      Method: <strong>{html.escape(str(adj.get('method','heuristic')))}</strong>{
+        f" (regression R&sup2; {adj['regression']['r2']}, n={adj['regression']['n']}, "
+        f"fit: {', '.join(adj['regression']['features_used']) or 'none'})"
+        if adj.get('regression') else ''
+      }
+    </p>
     <div class="kv">
       <div><span>$/sqft</span><br>{_money(adj['price_per_sqft'])}</div>
       <div><span>Per bedroom</span><br>{_money(adj['bed_value'])}</div>

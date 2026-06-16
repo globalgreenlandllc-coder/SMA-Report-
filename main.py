@@ -30,12 +30,15 @@ def main() -> None:
     parser.add_argument("--exclude", nargs="*", default=[],
                         help="ListingId(s) to toggle out of the valuation.")
     parser.add_argument("--out", default="output", help="Output directory.")
+    parser.add_argument("--method", default="auto",
+                        choices=["auto", "regression", "heuristic"],
+                        help="Adjustment model (default: auto).")
     parser.add_argument("--json", action="store_true",
                         help="Print the full engine result as JSON and exit.")
     args = parser.parse_args()
 
     include = {lid: False for lid in args.exclude}
-    result = run_cma(SUBJECT, COMPS, include=include)
+    result = run_cma(SUBJECT, COMPS, include=include, method=args.method)
 
     if args.json:
         print(json.dumps(result, indent=2, default=str))
@@ -53,8 +56,14 @@ def main() -> None:
     print(f"  LOW      {_money(result['low'])}")
     print(f"  LIKELY   {_money(result['likely'])}   <-- recommended")
     print(f"  HIGH     {_money(result['high'])}")
+    adj = result["adjustments"]
+    method_note = adj.get("method", "heuristic")
+    if adj.get("regression"):
+        reg = adj["regression"]
+        method_note += f" (R2={reg['r2']}, n={reg['n']}, fit: {', '.join(reg['features_used']) or 'none'})"
     print(f"  Confidence: {result['confidence']}/100   "
-          f"(derived $/sqft {_money(result['adjustments']['price_per_sqft'])})")
+          f"(derived $/sqft {_money(adj['price_per_sqft'])})")
+    print(f"  Model: {method_note}")
     print("-" * 64)
     print("  Why this price:")
     for r in result["reasons"]:

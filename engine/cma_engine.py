@@ -35,6 +35,8 @@ from datetime import date, datetime
 from statistics import median
 from typing import Optional
 
+from .regression import fit_adjustments
+
 
 # ---------------------------------------------------------------------------
 # Field access helpers (tolerant of missing / None values)
@@ -101,15 +103,20 @@ def haversine_miles(lat1, lon1, lat2, lon2) -> float:
 # Market-derived adjustment values
 # ---------------------------------------------------------------------------
 
-def derive_adjustments(comps: list) -> dict:
+def derive_adjustments(comps: list, method: str = "auto", ref_year: Optional[int] = None) -> dict:
     """
     Derive dollar adjustment values from the local comp set.
 
-    price_per_sqft is the median ClosePrice/LivingArea across closed comps -- this
-    is what makes the model neighborhood-aware. Per-feature values are anchored to
-    that local ppsf (each expressed as a sqft-equivalent), so a pricier market
-    automatically produces larger per-feature adjustments. Pool value is measured
-    from the comps directly when the data supports it.
+    method:
+        "auto"       -- fit a regression when the data supports it, otherwise use
+                        the ppsf-anchored heuristics; any regression coefficient
+                        that fails validation falls back to its heuristic value.
+        "regression" -- same as auto (regression is always validated/fallback-backed).
+        "heuristic"  -- force the ppsf-anchored heuristics only.
+
+    The heuristic baseline: price_per_sqft is the median ClosePrice/LivingArea
+    across closed comps (neighborhood-aware); per-feature values are anchored to
+    that local ppsf; pool value is measured from the comps when the data supports it.
     """
     closed = [c for c in comps if _is_closed(c) and _num(c.get("LivingArea")) > 0]
     ppsf_samples = [
@@ -135,7 +142,7 @@ def derive_adjustments(comps: list) -> dict:
 
     pool_value = _derive_pool_value(closed, ppsf)
 
-    return {
+    adj = {
         "price_per_sqft": round(ppsf, 2),
         "bed_value": bed_value,
         "bath_value": bath_value,
@@ -144,7 +151,32 @@ def derive_adjustments(comps: list) -> dict:
         "pool_value": pool_value,
         "pool_value_source": "comps" if _pool_derivable(closed) else "ppsf-fallback",
         "n_ppsf_samples": len(ppsf_samples),
+        "method": "heuristic",
+        "regression": None,
     }
+
+    if method in ("auto", "regression"):
+        if ref_year is None:
+            years = [int(_num(c.get("YearBuilt"))) for c in comps if c.get("YearBuilt")]
+            ref_year = (max(years) if years else date.today().year)
+        fit = fit_adjustments(comps, ref_year)
+        if fit:
+            # Override only the features the regression validated; keep heuristic
+            # values (and pool source) for the rest. Never a silent black box.
+            for key in ("price_per_sqft", "bed_value", "bath_value",
+                        "garage_value", "pool_value", "age_value_per_year"):
+                if key in fit:
+                    adj[key] = fit[key]
+                    if key == "pool_value":
+                        adj["pool_value_source"] = "regression"
+            adj["method"] = "regression"
+            adj["regression"] = {
+                "n": fit["n"], "r2": fit["r2"],
+                "features_used": fit["features_used"],
+                "dropped_features": fit["dropped_features"],
+            }
+
+    return adj
 
 
 def _pool_derivable(closed: list) -> bool:
@@ -379,6 +411,7 @@ def run_cma(
     comps: list,
     include: Optional[dict] = None,
     ref_date: Optional[date] = None,
+    method: str = "auto",
 ) -> dict:
     """
     Run a full CMA.
@@ -408,7 +441,7 @@ def run_cma(
         close_dates = [d for d in (_to_date(c.get("CloseDate")) for c in comps) if d]
         ref_date = max(close_dates) if close_dates else date.today()
 
-    adj = derive_adjustments(comps)
+    adj = derive_adjustments(comps, method=method, ref_year=ref_date.year)
 
     all_results = [adjust_comp(subject, c, adj, ref_date) for c in comps]
     for r in all_results:
