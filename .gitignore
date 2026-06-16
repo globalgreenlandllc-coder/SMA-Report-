@@ -1,20 +1,34 @@
-# Dependencies
-node_modules/
-
-# Environment
+# --- Secrets / credentials (NEVER commit MLS or aggregator keys) ---
 .env
-.env.local
-.env.*.local
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
 
-# Build output
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# --- Generated reports ---
+output/
+
+# --- Node / web UI ---
+node_modules/
 dist/
 build/
 
-# Logs
+# --- Logs ---
 *.log
 npm-debug.log*
 
-# OS / editor
+# --- OS / editor ---
 .DS_Store
 .vscode/
 .idea/

@@ -1,0 +1,5 @@
+# Core engine, sample data loader, and CLI run on the Python standard library
+# alone -- no install needed to run `python main.py` (HTML report).
+
+# Optional: enables branded PDF report output.
+reportlab>=4.0
