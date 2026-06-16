@@ -27,6 +27,10 @@ export default function AdminPanel({ onClose }) {
     try { setTest(await api.adminTestSource()); }
     catch (e) { setTest({ ok: false, note: e.message }); }
   }
+  async function changePlan(id, plan) {
+    setAgents((list) => list.map((a) => (a.id === id ? { ...a, plan } : a)));
+    try { await api.adminSetPlan(id, plan); } catch (e) { setStatus("Error: " + e.message); }
+  }
 
   const F = ({ label, k, ph, type }) => (
     <label className="field tight"><span>{label}</span>
@@ -83,8 +87,27 @@ export default function AdminPanel({ onClose }) {
           <div className={"test-result " + (test.ok ? "ok" : "bad")}>
             {test.ok ? `✓ ${test.source}: pulled ${test.sample_count} records.`
                      : `✕ ${test.note || "failed"}`}
+            {test.meta && (
+              <div className="muted small" style={{ marginTop: 4 }}>
+                Retention: {test.meta.retention_months ?? "n/a"} mo · refresh every {test.meta.refresh_minutes || 0} min
+                {test.meta.dropped_retention ? ` · ${test.meta.dropped_retention} dropped (too old)` : ""}
+                <br />{test.meta.disclaimer}
+              </div>
+            )}
           </div>
         )}
+
+        <h3 style={{ marginTop: 24 }}>Display rules (per source)</h3>
+        <p className="muted small">Match these to your MLS license terms.</p>
+        <div className="grid2">
+          <F label="Retention (months)" k={`${source}_retention_months`} ph="e.g. 36" />
+          <F label="Refresh (minutes)" k={`${source}_refresh_minutes`} ph="e.g. 60" />
+        </div>
+        <label className="field tight"><span>Display disclaimer</span>
+          <textarea rows={2} value={s[`${source}_disclaimer`] || ""}
+            onChange={(e) => set(`${source}_disclaimer`, e.target.value)} />
+        </label>
+        <button className="primary" onClick={save}>Save display rules</button>
 
         <h3 style={{ marginTop: 24 }}>Email / SMS transport</h3>
         <p className="muted small">Used for app-mode sends (behind agent confirmation).</p>
@@ -106,10 +129,18 @@ export default function AdminPanel({ onClose }) {
         <div className="lead-list">
           {agents.map((a) => (
             <div className="lead" key={a.id}>
-              <div><strong>{a.branding?.agent_name || a.email}</strong>
-                {a.role === "admin" && <span className="tag" style={{ marginLeft: 6 }}>admin</span>}
+              <div className="agent-row">
+                <div>
+                  <strong>{a.branding?.agent_name || a.email}</strong>
+                  {a.role === "admin" && <span className="tag" style={{ marginLeft: 6 }}>admin</span>}
+                  <div className="muted small">{a.email} · {a.report_count} reports · {a.lead_count} leads</div>
+                </div>
+                <select value={a.plan || "free"} onChange={(e) => changePlan(a.id, e.target.value)}>
+                  <option value="free">Free</option>
+                  <option value="pro">Pro</option>
+                  <option value="team">Team</option>
+                </select>
               </div>
-              <div className="muted small">{a.email} · {a.report_count} reports · {a.lead_count} leads</div>
             </div>
           ))}
         </div>

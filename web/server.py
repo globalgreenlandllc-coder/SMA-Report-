@@ -21,6 +21,7 @@ import functools
 import os
 import secrets
 import sys
+import time
 import urllib.parse
 
 from flask import Flask, jsonify, request, Response, g
@@ -43,6 +44,17 @@ app = Flask(__name__)
 CORS(app)  # allow the Vite dev server (localhost:5173) to call the API
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000")
+
+# Subscription tiers. reports_per_month = None means unlimited.
+PLANS = {
+    "free": {"label": "Free", "price": 0, "reports_per_month": 3, "seats": 1},
+    "pro":  {"label": "Pro", "price": 49, "reports_per_month": None, "seats": 1},
+    "team": {"label": "Team", "price": 149, "reports_per_month": None, "seats": 5},
+}
+
+
+def _plan_of(agent: dict) -> str:
+    return agent.get("plan", "free") if agent.get("plan") in PLANS else "free"
 
 
 # ---------------------------------------------------------------------------
@@ -112,22 +124,45 @@ def _apply_source_env(s: dict) -> None:
             os.environ[env_key] = str(s[k])
 
 
-def _load_source_comps(limit: int = 25):
-    """Pull comps from the admin-configured source; fall back to sample data."""
+_SOURCE_CACHE = {}  # source -> (fetched_at, comps, meta); respects refresh TTL
+
+
+def _load_source_comps(limit: int = 25, force: bool = False):
+    """
+    Pull comps from the admin-configured source, enforce per-MLS display rules,
+    and respect the source's refresh TTL via a small cache. Falls back to sample
+    data on failure. Returns (comps, source, meta).
+    """
+    from data.display_rules import apply_rules, rules_for
+
     settings = store.get_settings()
     _apply_source_env(settings)
     source = (settings.get("data_source") or "sample").lower()
+
+    ttl = float(rules_for(source, settings).get("refresh_minutes") or 0) * 60
+    cached = _SOURCE_CACHE.get(source)
+    if not force and cached and ttl and (time.time() - cached[0] < ttl):
+        return cached[1], source, {**cached[2], "cached": True}
+
+    note = None
     try:
         if source == "simplyrets":
             from data.reso_loader import load_comps
-            return load_comps(limit=limit), "simplyrets", None
-        if source in ("mlsgrid", "trestle"):
+            raw = load_comps(limit=limit)
+        elif source in ("mlsgrid", "trestle"):
             from data.reso_odata_loader import make_loader
             os.environ["RESO_PROVIDER"] = source
-            return make_loader().load_comps(top=limit), source, None
+            raw = make_loader().load_comps(top=limit)
+        else:
+            raw, source = COMPS, "sample"
     except Exception as exc:
-        return COMPS, "sample", f"{source} unavailable ({exc}); using sample data."
-    return COMPS, "sample", None
+        note, raw, source = f"{source} unavailable ({exc}); using sample data.", COMPS, "sample"
+
+    kept, meta = apply_rules(raw, source, settings)
+    meta["note"] = note
+    meta["cached"] = False
+    _SOURCE_CACHE[source] = (time.time(), kept, meta)
+    return kept, source, meta
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +212,7 @@ def register():
     # The first account to register becomes the admin (manages API/data sources).
     role = "admin" if store.count_accounts() == 0 else "agent"
     account = {
-        "id": agent_id, "email": email, "role": role,
+        "id": agent_id, "email": email, "role": role, "plan": "free",
         "pw_hash": pw["hash"], "pw_salt": pw["salt"],
         "branding": branding, "created_at": store._now(),
     }
@@ -238,8 +273,8 @@ def cma():
 @app.get("/api/comps")
 def comps_from_source():
     """Pull comps from the admin-configured data source (fallback: sample)."""
-    comps, source, note = _load_source_comps(limit=int(request.args.get("limit", 25)))
-    return jsonify({"comps": comps, "source": source, "note": note})
+    comps, source, meta = _load_source_comps(limit=int(request.args.get("limit", 25)))
+    return jsonify({"comps": comps, "source": source, "meta": meta, "note": meta.get("note")})
 
 
 @app.get("/api/templates")
@@ -267,6 +302,17 @@ def create_report():
     existing = store.get_report(token)
     if existing and existing.get("owner") not in (None, g.agent["id"]):
         return jsonify({"error": "forbidden"}), 403
+
+    # Plan limit: only NEW reports count against the monthly quota (re-saving an
+    # existing report to a new version is free).
+    if not existing:
+        limit = PLANS[_plan_of(g.agent)]["reports_per_month"]
+        if limit is not None and store.count_reports_this_month(g.agent["id"]) >= limit:
+            return jsonify({
+                "error": "plan_limit",
+                "message": f"Your {_plan_of(g.agent)} plan allows {limit} reports per "
+                           f"month. Upgrade to create more.",
+            }), 402
 
     record = store.save_report(token, {
         "result": result,
@@ -485,6 +531,37 @@ def report_pdf():
 
 
 # ---------------------------------------------------------------------------
+# Billing / subscription
+# ---------------------------------------------------------------------------
+
+@app.get("/api/billing")
+@auth_required
+def billing():
+    plan = _plan_of(g.agent)
+    limit = PLANS[plan]["reports_per_month"]
+    used = store.count_reports_this_month(g.agent["id"])
+    return jsonify({
+        "plan": plan, "plans": PLANS,
+        "usage": {"reports_this_month": used, "limit": limit,
+                  "remaining": (None if limit is None else max(0, limit - used))},
+    })
+
+
+@app.post("/api/billing/upgrade")
+@auth_required
+def billing_upgrade():
+    """Demo upgrade -- selects a plan WITHOUT collecting payment. A real build
+    would create a checkout session (Stripe) and set the plan on webhook."""
+    body = request.get_json(force=True) or {}
+    plan = body.get("plan")
+    if plan not in PLANS:
+        return jsonify({"error": "unknown plan"}), 400
+    store.update_account(g.agent["id"], {"plan": plan})
+    return jsonify({"plan": plan, "note": "Demo: plan changed without payment. "
+                                          "Wire Stripe Checkout here for production."})
+
+
+# ---------------------------------------------------------------------------
 # Admin: data-source / API management
 # ---------------------------------------------------------------------------
 
@@ -512,7 +589,7 @@ def admin_put_settings():
 @app.get("/api/admin/agents")
 @admin_required
 def admin_agents():
-    agents = [_public_account(a) for a in store._read()["accounts"].values()]
+    agents = [_public_account(a) for a in store.list_accounts()]
     agents.sort(key=lambda a: a.get("created_at", ""), reverse=True)
     # attach report + lead counts
     for a in agents:
@@ -521,12 +598,25 @@ def admin_agents():
     return jsonify({"agents": agents})
 
 
+@app.put("/api/admin/agents/<agent_id>/plan")
+@admin_required
+def admin_set_plan(agent_id):
+    body = request.get_json(force=True) or {}
+    plan = body.get("plan")
+    if plan not in PLANS:
+        return jsonify({"error": "unknown plan"}), 400
+    if not store.get_account(agent_id):
+        return jsonify({"error": "not found"}), 404
+    store.update_account(agent_id, {"plan": plan})
+    return jsonify({"ok": True, "agent_id": agent_id, "plan": plan})
+
+
 @app.post("/api/admin/test-source")
 @admin_required
 def admin_test_source():
-    comps, source, note = _load_source_comps(limit=3)
-    return jsonify({"source": source, "ok": note is None, "note": note,
-                    "sample_count": len(comps)})
+    comps, source, meta = _load_source_comps(limit=3, force=True)
+    return jsonify({"source": source, "ok": meta.get("note") is None,
+                    "note": meta.get("note"), "sample_count": len(comps), "meta": meta})
 
 
 if __name__ == "__main__":

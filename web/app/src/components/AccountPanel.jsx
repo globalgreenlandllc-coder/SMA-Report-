@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import Billing from "./Billing.jsx";
 
 // Slide-over panel: agent branding (applied to every report), the embeddable
 // lead-capture widget snippet, and captured leads.
@@ -42,7 +43,10 @@ export default function AccountPanel({ agent, onClose, onBrandingSaved }) {
           <button onClick={onClose}>✕</button>
         </div>
 
-        <h3>Branding</h3>
+        <h3>Plan & billing</h3>
+        <Billing />
+
+        <h3 style={{ marginTop: 24 }}>Branding</h3>
         <p className="muted small">Applied to every report and your lead widget.</p>
         <div className="grid2">
           <F label="Agent name" k="agent_name" />

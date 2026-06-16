@@ -51,11 +51,15 @@ export const api = {
   listLeads: () => req("/api/leads", "GET"),
   // data source
   getComps: (limit = 25) => req(`/api/comps?limit=${limit}`, "GET"),
+  // billing
+  getBilling: () => req("/api/billing", "GET"),
+  upgrade: (plan) => req("/api/billing/upgrade", "POST", { plan }),
   // admin
   adminGetSettings: () => req("/api/admin/settings", "GET"),
   adminPutSettings: (b) => req("/api/admin/settings", "PUT", b),
   adminAgents: () => req("/api/admin/agents", "GET"),
   adminTestSource: () => req("/api/admin/test-source", "POST", {}),
+  adminSetPlan: (id, plan) => req(`/api/admin/agents/${id}/plan`, "PUT", { plan }),
   // pdf download (returns a Blob, not JSON)
   async downloadPdf(payload) {
     const res = await fetch("/api/report/pdf", {

@@ -273,6 +273,18 @@ button:disabled { opacity: .5; cursor: default; }
 .test-result.ok { background: #e8f7ee; color: var(--good); }
 .test-result.bad { background: #fdeaea; color: var(--bad); }
 
+/* ---------- billing ---------- */
+.usage-bar { background: #f3f4f8; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+.plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.plan-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px 10px; text-align: center; }
+.plan-card.current { border-color: var(--primary); background: #f5f4ff; }
+.plan-name { font-weight: 700; }
+.plan-price { font-size: 18px; font-weight: 800; color: var(--primary-600); margin: 4px 0; }
+.plan-feat { margin-bottom: 10px; line-height: 1.5; }
+.plan-card button { width: 100%; }
+.agent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.agent-row select { width: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slidein { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 

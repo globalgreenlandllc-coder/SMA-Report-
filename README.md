@@ -115,11 +115,19 @@ Done:
 - **PDF export** of the branded report from the UI ("Download PDF") and the CLI
 - "Pull comps from MLS" in the UI uses the admin-configured source
 
+- **SQLite database** (stdlib) backs all persistence — accounts, versioned
+  reports, leads, settings — with one-time import of any legacy JSON store
+- **Billing tiers** (free / pro / team) with per-month report limits enforced on
+  create; in-app plan picker (demo upgrade, no payment) and admin plan control
+- **Per-MLS display rules**: retention windows (drop sales too old to display),
+  attribution enforcement, refresh/cache TTL, and per-source display disclaimers,
+  admin-configurable per source
+
 Next:
-- Per-MLS display/refresh/retention rule enforcement for production feeds
-- Billing / subscription tiers
-- Replace the JSON file store with a real database
+- Wire a real payment processor (Stripe Checkout) behind the upgrade flow
+- Wire a real email/SMS transport account for production sends
 - Move PDF rendering to use each template's copy (HTML already does)
+- Background refresh jobs + retention sweeps for cached MLS data
 
 > The web app now requires sign-in. Create an account on first load, or use the
 > CLI (`python main.py`) which needs no account.
