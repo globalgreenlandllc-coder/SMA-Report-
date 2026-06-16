@@ -30,6 +30,11 @@ def main() -> None:
     parser.add_argument("--exclude", nargs="*", default=[],
                         help="ListingId(s) to toggle out of the valuation.")
     parser.add_argument("--out", default="output", help="Output directory.")
+    parser.add_argument("--source", default="sample", choices=["sample", "simplyrets"],
+                        help="Comp data source (default: sample). 'simplyrets' pulls "
+                             "live from the RESO Web API sandbox.")
+    parser.add_argument("--limit", type=int, default=25,
+                        help="Max comps to pull from a live source.")
     parser.add_argument("--method", default="auto",
                         choices=["auto", "regression", "heuristic"],
                         help="Adjustment model (default: auto).")
@@ -37,8 +42,18 @@ def main() -> None:
                         help="Print the full engine result as JSON and exit.")
     args = parser.parse_args()
 
+    comps = COMPS
+    if args.source == "simplyrets":
+        try:
+            from data.reso_loader import load_comps
+            comps = load_comps(limit=args.limit)
+            print(f"[source] Pulled {len(comps)} live comps from SimplyRETS RESO API.")
+        except Exception as exc:  # network/auth failure -> fall back, don't crash
+            print(f"[source] Live feed unavailable ({exc}); falling back to sample data.")
+            comps = COMPS
+
     include = {lid: False for lid in args.exclude}
-    result = run_cma(SUBJECT, COMPS, include=include, method=args.method)
+    result = run_cma(SUBJECT, comps, include=include, method=args.method)
 
     if args.json:
         print(json.dumps(result, indent=2, default=str))
