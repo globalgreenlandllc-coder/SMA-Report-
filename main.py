@@ -30,9 +30,11 @@ def main() -> None:
     parser.add_argument("--exclude", nargs="*", default=[],
                         help="ListingId(s) to toggle out of the valuation.")
     parser.add_argument("--out", default="output", help="Output directory.")
-    parser.add_argument("--source", default="sample", choices=["sample", "simplyrets"],
-                        help="Comp data source (default: sample). 'simplyrets' pulls "
-                             "live from the RESO Web API sandbox.")
+    parser.add_argument("--source", default="sample",
+                        choices=["sample", "simplyrets", "mlsgrid", "trestle"],
+                        help="Comp data source (default: sample). 'simplyrets' uses "
+                             "the RESO sandbox; 'mlsgrid'/'trestle' use the RESO Web "
+                             "API OData feed (credentials via env).")
     parser.add_argument("--limit", type=int, default=25,
                         help="Max comps to pull from a live source.")
     parser.add_argument("--method", default="auto",
@@ -50,6 +52,16 @@ def main() -> None:
             print(f"[source] Pulled {len(comps)} live comps from SimplyRETS RESO API.")
         except Exception as exc:  # network/auth failure -> fall back, don't crash
             print(f"[source] Live feed unavailable ({exc}); falling back to sample data.")
+            comps = COMPS
+    elif args.source in ("mlsgrid", "trestle"):
+        try:
+            from data.reso_odata_loader import make_loader
+            import os
+            os.environ["RESO_PROVIDER"] = args.source
+            comps = make_loader().load_comps(top=args.limit)
+            print(f"[source] Pulled {len(comps)} comps from {args.source} (RESO OData).")
+        except Exception as exc:
+            print(f"[source] {args.source} feed unavailable ({exc}); falling back to sample data.")
             comps = COMPS
 
     include = {lid: False for lid in args.exclude}

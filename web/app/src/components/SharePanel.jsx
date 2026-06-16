@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api.js";
+import { money } from "../util.js";
 
 // Send-to-client flow. The agent saves a shareable report, then shares via link,
 // email, or text. Email/text first returns a DRAFT the agent reviews; nothing is
@@ -14,6 +15,8 @@ export default function SharePanel({ buildPayload }) {
   const [draft, setDraft] = useState(null);
   const [status, setStatus] = useState("");
   const [views, setViews] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
 
   // Poll view tracking so the agent sees the "client viewed" indicator.
@@ -29,10 +32,16 @@ export default function SharePanel({ buildPayload }) {
     setBusy(true);
     setStatus("");
     try {
-      const res = await api.createReport({ ...buildPayload(), client_name: clientName });
+      const res = await api.createReport({
+        ...buildPayload(),
+        client_name: clientName,
+        token: token || undefined, // re-save same report -> new version
+      });
       setToken(res.token);
+      setVersion(res.version);
       setUrl(window.location.origin + res.url.replace(/^https?:\/\/[^/]+/, ""));
-      setStatus(`Saved v${res.version}.`);
+      setStatus(res.version > 1 ? `Saved v${res.version}.` : "Saved.");
+      try { setHistory(await api.getHistory(res.token)); } catch {}
     } catch (e) {
       setStatus("Error: " + e.message);
     } finally {
@@ -88,6 +97,21 @@ export default function SharePanel({ buildPayload }) {
               ? `✓ Client viewed (${views.view_count}× · last ${new Date(views.last_viewed_at).toLocaleString()})`
               : "Not viewed yet"}
           </div>
+
+          <div className="version-row">
+            <span className="muted small">Version {version}</span>
+            <button disabled={busy} onClick={save}>Re-run & save new version</button>
+          </div>
+          {history && history.versions.length > 1 && (
+            <div className="history">
+              <span className={"delta " + (history.delta_likely >= 0 ? "up" : "down")}>
+                {history.delta_likely >= 0 ? "▲" : "▼"} {money(Math.abs(history.delta_likely))} ({history.delta_pct.toFixed(1)}%) since v1
+              </span>
+              <div className="muted small">
+                {history.versions.map((v) => `v${v.version}: ${money(v.likely)}`).join("  ·  ")}
+              </div>
+            </div>
+          )}
 
           <div className="channel-row">
             {["email", "sms", "link"].map((ch) => (

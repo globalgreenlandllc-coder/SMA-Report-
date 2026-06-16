@@ -92,17 +92,30 @@ Four independent modules, so swapping sample data for a live RESO feed is a
 
 ## Status & roadmap
 
-Done: market-derived engine, regression model, sample + live RESO data, branded
-HTML/PDF report, backend API, send-to-client flow with view tracking, and the
-React agent UI (price panel, comp toggles + synced map, side-by-side compare,
-net-proceeds, what-if-upgrade simulator, pricing-strategy slider).
+Done:
+- Market-derived engine + regression model; sample, SimplyRETS, and MLSGrid/Trestle
+  (RESO OData) data sources
+- Branded HTML/PDF report with 4 templates (seller / buyer / expired / FSBO),
+  market-trend mini-charts, MLS verification links, and the disclaimer
+- **Multi-tenant accounts**: agent sign-in (PBKDF2 + signed tokens), per-agent
+  branding applied to every report, owner-scoped + **versioned** reports with
+  price-movement diffs
+- Send-to-client flow with view tracking (draft → confirm; handoff or app-mode
+  via SMTP/Twilio behind the confirmation gate)
+- Public "what's my home worth" lead-capture widget (`/widget/<agent_id>`) +
+  agent leads dashboard
+- React agent UI: auth, account/branding drawer, live price panel, comp toggles +
+  synced map, trends, side-by-side compare, net-proceeds, what-if simulator,
+  pricing-strategy slider, versioned share
 
 Next:
-- Auth + multi-tenant accounts (per-agent branding, saved reports, billing)
-- Production RESO feed (MLSGrid / Trestle loader) + per-MLS display/refresh rules
-- Report templates (buyer CMA, expired-listing, FSBO) and save-&-version diffs
-- Market-trend mini-charts and the public "what's my home worth" lead widget
-- Real email/SMS transport (SMTP / Twilio) behind the existing confirmation gate
+- Per-MLS display/refresh/retention rule enforcement for production feeds
+- Billing / subscription tiers
+- Replace the JSON file store with a real database
+- Move PDF rendering to use each template's copy (HTML already does)
+
+> The web app now requires sign-in. Create an account on first load, or use the
+> CLI (`python main.py`) which needs no account.
 
 > This tool produces an opinion of value for marketing purposes. It is **not an
 > appraisal** and is not a substitute for one.

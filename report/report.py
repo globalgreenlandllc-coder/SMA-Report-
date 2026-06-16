@@ -15,6 +15,8 @@ from __future__ import annotations
 import html
 import os
 
+from .templates import get_template
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
@@ -53,8 +55,44 @@ def _signed_money(n) -> str:
 # HTML report
 # ---------------------------------------------------------------------------
 
-def render_html(result: dict, branding: dict) -> str:
+def _sparkline(series, width=220, height=44):
+    """Tiny inline SVG sparkline of monthly price-per-sqft."""
+    pts = [p["ppsf"] for p in series]
+    if len(pts) < 2:
+        return ""
+    lo, hi = min(pts), max(pts)
+    rng = (hi - lo) or 1.0
+    step = width / (len(pts) - 1)
+    coords = " ".join(
+        f"{i*step:.1f},{height - 4 - ((v - lo) / rng) * (height - 8):.1f}"
+        for i, v in enumerate(pts)
+    )
+    return (f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+            f'<polyline points="{coords}" fill="none" stroke="#1f6feb" stroke-width="2"/>'
+            f'</svg>')
+
+
+def _render_trends(trends) -> str:
+    if not trends:
+        return ""
+    spark = _sparkline(trends.get("ppsf_series", []))
+    moi = trends.get("months_of_inventory")
+    s2l = trends.get("sold_to_list_pct")
+    return f"""
+  <div class="section">
+    <h2>Market Trends</h2>
+    <div class="kv">
+      <div><span>Months of inventory</span><br>{moi if moi is not None else 'n/a'} ({html.escape(trends.get('market_label',''))})</div>
+      <div><span>Sold-to-list ratio</span><br>{str(s2l) + '%' if s2l is not None else 'n/a'}</div>
+      <div><span>Closed / active comps</span><br>{trends.get('n_closed',0)} / {trends.get('n_active',0)}</div>
+      <div><span>$/sqft trend</span><br>{spark or 'n/a'}</div>
+    </div>
+  </div>"""
+
+
+def render_html(result: dict, branding: dict, template: str = "seller") -> str:
     s = result["subject"]
+    tpl = get_template(template)
     primary = branding.get("primary_color", "#1f6feb")
     accent = branding.get("accent_color", "#0b3d91")
     addr = html.escape(str(s.get("UnparsedAddress", "Subject Property")))
@@ -93,6 +131,7 @@ def render_html(result: dict, branding: dict) -> str:
     reasons = "\n".join(f"<li>{html.escape(r)}</li>" for r in result["reasons"])
     adj = result["adjustments"]
     conf = result["confidence"]
+    trends_html = _render_trends(result.get("trends"))
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -137,7 +176,8 @@ def render_html(result: dict, branding: dict) -> str:
 <body>
 <div class="wrap">
   <header>
-    <h1>Comparative Market Analysis</h1>
+    <h1>{html.escape(tpl['title'])}</h1>
+    <div class="subtitle" style="font-size:13px;opacity:.9;margin-bottom:4px;">{html.escape(tpl['subtitle'])}</div>
     <div class="agent">
       {html.escape(str(branding.get('agent_name','')))} &middot;
       {html.escape(str(branding.get('brokerage','')))} &middot;
@@ -145,6 +185,10 @@ def render_html(result: dict, branding: dict) -> str:
       {html.escape(str(branding.get('email','')))}
     </div>
   </header>
+
+  <div class="section" style="background:#f8fafd;">
+    <p style="margin:0;font-size:14px;color:#333;">{html.escape(tpl['intro'])}</p>
+  </div>
 
   <div class="section">
     <h2>Subject Property</h2>
@@ -198,6 +242,8 @@ def render_html(result: dict, branding: dict) -> str:
       <div><span>Per year of age</span><br>{_money(adj['age_value_per_year'])}</div>
     </div>
   </div>
+
+  {trends_html}
 
   <div class="section">
     <h2>Comparable Listings ({result['n_comps']} used, {result['n_closed']} closed)</h2>
@@ -331,7 +377,7 @@ def _render_pdf(result: dict, branding: dict, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 def generate_report(result: dict, branding: dict, out_dir: str = "output",
-                    basename: str = "cma_report") -> dict:
+                    basename: str = "cma_report", template: str = "seller") -> dict:
     """
     Write the report to ``out_dir``. Always writes HTML; also writes PDF when
     ReportLab is installed. Returns {"html": path, "pdf": path|None}.
@@ -339,7 +385,7 @@ def generate_report(result: dict, branding: dict, out_dir: str = "output",
     os.makedirs(out_dir, exist_ok=True)
     html_path = os.path.join(out_dir, f"{basename}.html")
     with open(html_path, "w", encoding="utf-8") as fh:
-        fh.write(render_html(result, branding))
+        fh.write(render_html(result, branding, template=template))
 
     pdf_path = None
     if REPORTLAB_AVAILABLE:
