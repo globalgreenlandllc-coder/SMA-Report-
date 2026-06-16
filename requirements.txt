@@ -3,3 +3,7 @@
 
 # Optional: enables branded PDF report output.
 reportlab>=4.0
+
+# Backend API + send-to-client flow (web/server.py).
+flask>=3.0
+flask-cors>=4.0
