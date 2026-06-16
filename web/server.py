@@ -277,6 +277,31 @@ def comps_from_source():
     return jsonify({"comps": comps, "source": source, "meta": meta, "note": meta.get("note")})
 
 
+@app.get("/api/geocode")
+def geocode():
+    """Resolve an address to lat/lon via OpenStreetMap Nominatim (so the map and
+    distance weighting reflect the typed subject address)."""
+    import json as _json
+    import urllib.parse as _up
+    import urllib.request as _ur
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"error": "q required"}), 400
+    url = "https://nominatim.openstreetmap.org/search?" + _up.urlencode(
+        {"q": q, "format": "json", "limit": 1})
+    req = _ur.Request(url, headers={"User-Agent": "SMA-Report/1.0 (CMA tool)"})
+    try:
+        with _ur.urlopen(req, timeout=10) as resp:
+            hits = _json.loads(resp.read().decode())
+    except Exception as exc:
+        return jsonify({"error": f"geocode failed: {exc}"}), 502
+    if not hits:
+        return jsonify({"error": "address not found"}), 404
+    h = hits[0]
+    return jsonify({"lat": float(h["lat"]), "lon": float(h["lon"]),
+                    "display_name": h.get("display_name", q)})
+
+
 @app.get("/api/templates")
 def templates():
     return jsonify({"templates": [{"key": k, **v} for k, v in TEMPLATES.items()]})

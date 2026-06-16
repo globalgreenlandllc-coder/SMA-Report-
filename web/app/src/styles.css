@@ -173,7 +173,10 @@ button:disabled { opacity: .5; cursor: default; }
 .mls-link:hover { text-decoration: underline; }
 .comp-toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
 
-/* ---------- minimap ---------- */
+/* ---------- address + minimap ---------- */
+.addr-row { display: flex; gap: 6px; }
+.addr-row input { flex: 1; }
+.addr-row button { padding: 0 12px; border-radius: var(--radius-sm); }
 .minimap { display: block; border-radius: 12px; }
 
 /* ---------- trends ---------- */

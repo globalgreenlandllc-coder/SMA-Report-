@@ -21,6 +21,17 @@ const TEMPLATES = [
   ["expired", "Expired listing"], ["fsbo", "FSBO"],
 ];
 
+// Module-scope so its identity is stable across renders — otherwise the input
+// remounts on every keystroke and loses focus after one character.
+function NumberField({ label, value, step, onChange }) {
+  return (
+    <label className="field tight"><span>{label}</span>
+      <input type="number" step={step || 1} value={value ?? ""}
+        onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} />
+    </label>
+  );
+}
+
 export default function App() {
   const [agent, setAgent] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -99,12 +110,18 @@ export default function App() {
     }
   }
 
-  const Num = ({ label, field, step }) => (
-    <label className="field tight"><span>{label}</span>
-      <input type="number" step={step || 1} value={subject[field] ?? ""}
-        onChange={(e) => setSubjField(field, Number(e.target.value))} />
-    </label>
-  );
+  async function locateAddress() {
+    const q = (subject.UnparsedAddress || "").trim();
+    if (!q) { setSourceNote("Enter an address first."); return; }
+    setSourceNote("Locating…");
+    try {
+      const r = await api.geocode(q);
+      setSubject((s) => ({ ...s, Latitude: r.lat, Longitude: r.lon }));
+      setSourceNote(`📍 Located: ${r.display_name}`);
+    } catch (e) {
+      setSourceNote("Couldn't locate that address (" + e.message + ").");
+    }
+  }
 
   return (
     <div className="app">
@@ -123,14 +140,19 @@ export default function App() {
           <div className="card">
             <h3>Subject property</h3>
             <label className="field tight"><span>Address</span>
-              <input value={subject.UnparsedAddress || ""} onChange={(e) => setSubjField("UnparsedAddress", e.target.value)} />
+              <div className="addr-row">
+                <input value={subject.UnparsedAddress || ""}
+                  onChange={(e) => setSubjField("UnparsedAddress", e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") locateAddress(); }} />
+                <button type="button" onClick={locateAddress} title="Find on map">📍</button>
+              </div>
             </label>
             <div className="grid2">
-              <Num label="Living area (sqft)" field="LivingArea" />
-              <Num label="Year built" field="YearBuilt" />
-              <Num label="Beds" field="BedroomsTotal" />
-              <Num label="Baths" field="BathroomsTotalInteger" />
-              <Num label="Garage" field="GarageSpaces" />
+              <NumberField label="Living area (sqft)" value={subject.LivingArea} onChange={(v) => setSubjField("LivingArea", v)} />
+              <NumberField label="Year built" value={subject.YearBuilt} onChange={(v) => setSubjField("YearBuilt", v)} />
+              <NumberField label="Beds" value={subject.BedroomsTotal} onChange={(v) => setSubjField("BedroomsTotal", v)} />
+              <NumberField label="Baths" value={subject.BathroomsTotalInteger} onChange={(v) => setSubjField("BathroomsTotalInteger", v)} />
+              <NumberField label="Garage" value={subject.GarageSpaces} onChange={(v) => setSubjField("GarageSpaces", v)} />
               <label className="field tight"><span>Pool</span>
                 <select value={subject.PoolPrivateYN ? "yes" : "no"} onChange={(e) => setSubjField("PoolPrivateYN", e.target.value === "yes")}>
                   <option value="no">No</option><option value="yes">Yes</option>

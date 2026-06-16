@@ -51,6 +51,7 @@ export const api = {
   listLeads: () => req("/api/leads", "GET"),
   // data source
   getComps: (limit = 25) => req(`/api/comps?limit=${limit}`, "GET"),
+  geocode: (q) => req(`/api/geocode?q=${encodeURIComponent(q)}`, "GET"),
   // billing
   getBilling: () => req("/api/billing", "GET"),
   upgrade: (plan) => req("/api/billing/upgrade", "POST", { plan }),

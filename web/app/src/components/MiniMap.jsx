@@ -5,11 +5,24 @@ export default function MiniMap({ subject, comps, hoverId, selectedId, onHover, 
   const W = 320, H = 240, pad = 24;
 
   const pts = comps
-    .filter((c) => c.Latitude != null && c.Longitude != null)
-    .map((c) => ({ id: c.ListingId, lat: c.Latitude, lng: c.Longitude, c }));
+    .map((c) => ({ id: c.ListingId, lat: Number(c.Latitude), lng: Number(c.Longitude), c }))
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
-  const lats = [subject.Latitude, ...pts.map((p) => p.lat)];
-  const lngs = [subject.Longitude, ...pts.map((p) => p.lng)];
+  const subjLat = Number(subject.Latitude);
+  const subjLng = Number(subject.Longitude);
+  const hasSubject = Number.isFinite(subjLat) && Number.isFinite(subjLng);
+
+  if (!hasSubject && pts.length === 0) {
+    return (
+      <div className="card">
+        <h3>Location <span className="muted">subject + comps</span></h3>
+        <p className="muted small">No coordinates yet — enter an address and click 📍 to place it on the map.</p>
+      </div>
+    );
+  }
+
+  const lats = [...(hasSubject ? [subjLat] : []), ...pts.map((p) => p.lat)];
+  const lngs = [...(hasSubject ? [subjLng] : []), ...pts.map((p) => p.lng)];
   let minLat = Math.min(...lats), maxLat = Math.max(...lats);
   let minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
   // pad degenerate ranges
@@ -53,12 +66,14 @@ export default function MiniMap({ subject, comps, hoverId, selectedId, onHover, 
           );
         })}
         {/* subject marker */}
-        <g>
-          <circle cx={x(subject.Longitude)} cy={y(subject.Latitude)} r="8" fill="#0b3d91" stroke="#fff" strokeWidth="2" />
-          <text x={x(subject.Longitude) + 11} y={y(subject.Latitude) + 4} fontSize="10" fontWeight="700" fill="#0b3d91">
-            Subject
-          </text>
-        </g>
+        {hasSubject && (
+          <g>
+            <circle cx={x(subjLng)} cy={y(subjLat)} r="8" fill="#0b3d91" stroke="#fff" strokeWidth="2" />
+            <text x={x(subjLng) + 11} y={y(subjLat) + 4} fontSize="10" fontWeight="700" fill="#0b3d91">
+              Subject
+            </text>
+          </g>
+        )}
       </svg>
     </div>
   );
