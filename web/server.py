@@ -32,7 +32,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine import run_cma                       # noqa: E402
 from engine.trends import market_trends           # noqa: E402
 from report import render_html                    # noqa: E402
+from report.report import generate_pdf_bytes       # noqa: E402
 from report.templates import TEMPLATES            # noqa: E402
+from report.narrative import build_narrative, pricing_recommendation  # noqa: E402
 from data import SUBJECT, COMPS, AGENT_BRANDING   # noqa: E402
 from web import store, auth                        # noqa: E402
 from web.transport import send_email, send_sms     # noqa: E402
@@ -64,9 +66,68 @@ def auth_required(fn):
     return wrapper
 
 
+def admin_required(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        agent = _current_agent()
+        if not agent:
+            return jsonify({"error": "authentication required"}), 401
+        if agent.get("role") != "admin":
+            return jsonify({"error": "admin only"}), 403
+        g.agent = agent
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def _public_account(a: dict) -> dict:
     """Account without secrets, safe to return to the client."""
     return {k: v for k, v in a.items() if k not in ("pw_hash", "pw_salt")}
+
+
+# Which settings keys are secret (masked on read, only updated when re-sent).
+_SECRET_KEYS = {"simplyrets_secret", "mlsgrid_token", "trestle_client_secret",
+                "smtp_pass", "twilio_auth_token"}
+
+
+def _masked_settings(s: dict) -> dict:
+    out = {}
+    for k, v in s.items():
+        out[k] = ("••••••" if (k in _SECRET_KEYS and v) else v)
+    return out
+
+
+def _apply_source_env(s: dict) -> None:
+    """Push stored data-source credentials into the process env for the loaders."""
+    mapping = {
+        "simplyrets_key": "SIMPLYRETS_API_KEY", "simplyrets_secret": "SIMPLYRETS_API_SECRET",
+        "mlsgrid_token": "MLSGRID_API_TOKEN", "mlsgrid_base_url": "MLSGRID_BASE_URL",
+        "trestle_client_id": "TRESTLE_CLIENT_ID", "trestle_client_secret": "TRESTLE_CLIENT_SECRET",
+        "smtp_host": "SMTP_HOST", "smtp_port": "SMTP_PORT", "smtp_user": "SMTP_USER",
+        "smtp_pass": "SMTP_PASS", "smtp_from": "SMTP_FROM",
+        "twilio_account_sid": "TWILIO_ACCOUNT_SID", "twilio_auth_token": "TWILIO_AUTH_TOKEN",
+        "twilio_from": "TWILIO_FROM",
+    }
+    for k, env_key in mapping.items():
+        if s.get(k):
+            os.environ[env_key] = str(s[k])
+
+
+def _load_source_comps(limit: int = 25):
+    """Pull comps from the admin-configured source; fall back to sample data."""
+    settings = store.get_settings()
+    _apply_source_env(settings)
+    source = (settings.get("data_source") or "sample").lower()
+    try:
+        if source == "simplyrets":
+            from data.reso_loader import load_comps
+            return load_comps(limit=limit), "simplyrets", None
+        if source in ("mlsgrid", "trestle"):
+            from data.reso_odata_loader import make_loader
+            os.environ["RESO_PROVIDER"] = source
+            return make_loader().load_comps(top=limit), source, None
+    except Exception as exc:
+        return COMPS, "sample", f"{source} unavailable ({exc}); using sample data."
+    return COMPS, "sample", None
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +141,11 @@ def _run_from_body(body: dict) -> dict:
     if include is None and body.get("exclude"):
         include = {lid: False for lid in body["exclude"]}
     method = body.get("method", "auto")
-    return run_cma(subject, comps, include=include or {}, method=method)
+    result = run_cma(subject, comps, include=include or {}, method=method)
+    result["trends"] = market_trends(comps)
+    result["narrative"] = body.get("narrative") or build_narrative(result)
+    result["recommendation"] = pricing_recommendation(result)
+    return result
 
 
 def _share_url(token: str) -> str:
@@ -109,8 +174,10 @@ def register():
         "brokerage": body.get("brokerage", branding["brokerage"]),
         "email": email,
     })
+    # The first account to register becomes the admin (manages API/data sources).
+    role = "admin" if store.count_accounts() == 0 else "agent"
     account = {
-        "id": agent_id, "email": email,
+        "id": agent_id, "email": email, "role": role,
         "pw_hash": pw["hash"], "pw_salt": pw["salt"],
         "branding": branding, "created_at": store._now(),
     }
@@ -165,9 +232,14 @@ def sample():
 @app.post("/api/cma")
 def cma():
     body = request.get_json(force=True) or {}
-    result = _run_from_body(body)
-    result["trends"] = market_trends(body.get("comps") or COMPS)
-    return jsonify(result)
+    return jsonify(_run_from_body(body))
+
+
+@app.get("/api/comps")
+def comps_from_source():
+    """Pull comps from the admin-configured data source (fallback: sample)."""
+    comps, source, note = _load_source_comps(limit=int(request.args.get("limit", 25)))
+    return jsonify({"comps": comps, "source": source, "note": note})
 
 
 @app.get("/api/templates")
@@ -185,6 +257,10 @@ def create_report():
     body = request.get_json(force=True) or {}
     result = body.get("result") or _run_from_body(body)
     result.setdefault("trends", market_trends(body.get("comps") or COMPS))
+    if body.get("narrative"):
+        result["narrative"] = body["narrative"]
+    result.setdefault("narrative", build_narrative(result))
+    result.setdefault("recommendation", pricing_recommendation(result))
     token = body.get("token") or secrets.token_urlsafe(9)
 
     # ownership check on update
@@ -384,6 +460,73 @@ def lead_widget(agent_id):
         return Response("Unknown agent.", status=404)
     from web.widget import render_widget
     return Response(render_widget(account, PUBLIC_BASE_URL), mimetype="text/html")
+
+
+# ---------------------------------------------------------------------------
+# PDF export
+# ---------------------------------------------------------------------------
+
+@app.post("/api/report/pdf")
+@auth_required
+def report_pdf():
+    """Render the branded PDF from the current state and return it for download."""
+    body = request.get_json(force=True) or {}
+    result = body.get("result") or _run_from_body(body)
+    branding = body.get("branding") or g.agent.get("branding") or AGENT_BRANDING
+    template = body.get("template", "seller")
+    try:
+        pdf = generate_pdf_bytes(result, branding, template=template)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    addr = (result.get("subject", {}) or {}).get("UnparsedAddress", "report")
+    fname = "CMA - " + "".join(c for c in addr.split(",")[0] if c.isalnum() or c in " -") + ".pdf"
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ---------------------------------------------------------------------------
+# Admin: data-source / API management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/settings")
+@admin_required
+def admin_get_settings():
+    return jsonify({"settings": _masked_settings(store.get_settings())})
+
+
+@app.put("/api/admin/settings")
+@admin_required
+def admin_put_settings():
+    body = request.get_json(force=True) or {}
+    patch = {}
+    for k, v in body.items():
+        # Ignore masked secrets that were sent back unchanged.
+        if k in _SECRET_KEYS and v == "••••••":
+            continue
+        patch[k] = v
+    s = store.save_settings(patch)
+    _apply_source_env(s)
+    return jsonify({"settings": _masked_settings(s)})
+
+
+@app.get("/api/admin/agents")
+@admin_required
+def admin_agents():
+    agents = [_public_account(a) for a in store._read()["accounts"].values()]
+    agents.sort(key=lambda a: a.get("created_at", ""), reverse=True)
+    # attach report + lead counts
+    for a in agents:
+        a["report_count"] = len(store.list_reports(owner=a["id"]))
+        a["lead_count"] = len(store.list_leads(agent_id=a["id"]))
+    return jsonify({"agents": agents})
+
+
+@app.post("/api/admin/test-source")
+@admin_required
+def admin_test_source():
+    comps, source, note = _load_source_comps(limit=3)
+    return jsonify({"source": source, "ok": note is None, "note": note,
+                    "sample_count": len(comps)})
 
 
 if __name__ == "__main__":

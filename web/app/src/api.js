@@ -49,4 +49,23 @@ export const api = {
   share: (tok, b) => req(`/api/reports/${tok}/share`, "POST", b),
   // leads
   listLeads: () => req("/api/leads", "GET"),
+  // data source
+  getComps: (limit = 25) => req(`/api/comps?limit=${limit}`, "GET"),
+  // admin
+  adminGetSettings: () => req("/api/admin/settings", "GET"),
+  adminPutSettings: (b) => req("/api/admin/settings", "PUT", b),
+  adminAgents: () => req("/api/admin/agents", "GET"),
+  adminTestSource: () => req("/api/admin/test-source", "POST", {}),
+  // pdf download (returns a Blob, not JSON)
+  async downloadPdf(payload) {
+    const res = await fetch("/api/report/pdf", {
+      method: "POST", headers: headers(), body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`PDF failed (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="(.+?)"/);
+    return { blob, filename: m ? m[1] : "cma-report.pdf" };
+  },
 };
+

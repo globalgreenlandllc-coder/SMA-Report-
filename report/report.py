@@ -132,6 +132,8 @@ def render_html(result: dict, branding: dict, template: str = "seller") -> str:
     adj = result["adjustments"]
     conf = result["confidence"]
     trends_html = _render_trends(result.get("trends"))
+    rec = result.get("recommendation") or {}
+    narrative = html.escape(result.get("narrative", "")) if result.get("narrative") else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -219,8 +221,15 @@ def render_html(result: dict, branding: dict, template: str = "seller") -> str:
     </div>
   </div>
 
+  {(f'''<div class="section" style="background:#eef4ff;">
+    <div style="font-size:13px;color:#555;">Recommended list price</div>
+    <div style="font-size:24px;font-weight:700;color:{accent};">{_money(rec.get('recommended_list_price'))}</div>
+    <div style="font-size:13px;color:#444;margin-top:4px;">{html.escape(rec.get('rationale',''))} <em>Expected pace: {html.escape(rec.get('expected_pace',''))}.</em></div>
+  </div>''') if rec else ''}
+
   <div class="section">
     <h2>Why This Price</h2>
+    {(f'<p style="font-size:14px;line-height:1.6;color:#333;">{narrative}</p>') if narrative else ''}
     <ul class="reasons">{reasons}</ul>
   </div>
 
@@ -270,8 +279,9 @@ def render_html(result: dict, branding: dict, template: str = "seller") -> str:
 # PDF report (ReportLab)
 # ---------------------------------------------------------------------------
 
-def _render_pdf(result: dict, branding: dict, path: str) -> None:
+def _render_pdf(result: dict, branding: dict, target, template: str = "seller") -> None:
     s = result["subject"]
+    tpl = get_template(template)
     primary = colors.HexColor(branding.get("primary_color", "#1f6feb"))
     accent = colors.HexColor(branding.get("accent_color", "#0b3d91"))
 
@@ -281,13 +291,13 @@ def _render_pdf(result: dict, branding: dict, path: str) -> None:
     styles.add(ParagraphStyle("Courtesy", parent=styles["Normal"], fontSize=7,
                               textColor=colors.grey, fontName="Helvetica-Oblique"))
 
-    doc = SimpleDocTemplate(path, pagesize=letter,
+    doc = SimpleDocTemplate(target, pagesize=letter,
                             topMargin=0.6 * inch, bottomMargin=0.6 * inch,
                             leftMargin=0.6 * inch, rightMargin=0.6 * inch)
     flow = []
 
     title_style = ParagraphStyle("Title2", parent=styles["Title"], textColor=primary, fontSize=20)
-    flow.append(Paragraph("Comparative Market Analysis", title_style))
+    flow.append(Paragraph(tpl["title"], title_style))
     flow.append(Paragraph(
         f"{branding.get('agent_name','')} &middot; {branding.get('brokerage','')} "
         f"&middot; {branding.get('phone','')} &middot; {branding.get('email','')}",
@@ -327,7 +337,18 @@ def _render_pdf(result: dict, branding: dict, path: str) -> None:
                           styles["Normal"]))
     flow.append(Spacer(1, 12))
 
+    if result.get("recommendation"):
+        rec = result["recommendation"]
+        flow.append(Paragraph(
+            f"<b>Recommended list price: {_money(rec['recommended_list_price'])}</b> "
+            f"&mdash; {html.escape(rec['rationale'])} Expected pace: {html.escape(rec['expected_pace'])}.",
+            styles["Normal"]))
+        flow.append(Spacer(1, 10))
+
     flow.append(Paragraph("Why This Price", styles["H"]))
+    if result.get("narrative"):
+        flow.append(Paragraph(html.escape(result["narrative"]), styles["Normal"]))
+        flow.append(Spacer(1, 6))
     for r in result["reasons"]:
         flow.append(Paragraph(f"&bull; {html.escape(r)}", styles["Normal"]))
     flow.append(Spacer(1, 12))
@@ -390,6 +411,16 @@ def generate_report(result: dict, branding: dict, out_dir: str = "output",
     pdf_path = None
     if REPORTLAB_AVAILABLE:
         pdf_path = os.path.join(out_dir, f"{basename}.pdf")
-        _render_pdf(result, branding, pdf_path)
+        _render_pdf(result, branding, pdf_path, template=template)
 
     return {"html": html_path, "pdf": pdf_path}
+
+
+def generate_pdf_bytes(result: dict, branding: dict, template: str = "seller") -> bytes:
+    """Render the branded PDF to bytes (for HTTP download). Requires ReportLab."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab is not installed; run pip install -r requirements.txt")
+    import io
+    buf = io.BytesIO()
+    _render_pdf(result, branding, buf, template=template)
+    return buf.getvalue()

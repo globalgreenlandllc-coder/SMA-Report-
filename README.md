@@ -107,6 +107,13 @@ Done:
 - React agent UI: auth, account/branding drawer, live price panel, comp toggles +
   synced map, trends, side-by-side compare, net-proceeds, what-if simulator,
   pricing-strategy slider, versioned share
+- **Admin role** (first account to register): manage the active MLS data source +
+  API credentials and email/SMS transport, test the connection, and see all
+  agents — from an in-app Admin panel
+- **Smart** auto-generated, editable "why this price" narrative + a market-aware
+  list-price recommendation
+- **PDF export** of the branded report from the UI ("Download PDF") and the CLI
+- "Pull comps from MLS" in the UI uses the admin-configured source
 
 Next:
 - Per-MLS display/refresh/retention rule enforcement for production feeds

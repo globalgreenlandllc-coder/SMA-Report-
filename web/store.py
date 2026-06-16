@@ -24,13 +24,33 @@ def _now() -> str:
 
 def _read() -> dict:
     if not os.path.exists(_STORE_FILE):
-        return {"accounts": {}, "reports": {}, "leads": []}
+        return {"accounts": {}, "reports": {}, "leads": [], "settings": {}}
     with open(_STORE_FILE, encoding="utf-8") as fh:
         data = json.load(fh)
     data.setdefault("accounts", {})
     data.setdefault("reports", {})
     data.setdefault("leads", [])
+    data.setdefault("settings", {})
     return data
+
+
+def count_accounts() -> int:
+    return len(_read()["accounts"])
+
+
+def get_settings() -> dict:
+    return _read().get("settings", {})
+
+
+def save_settings(patch: dict) -> dict:
+    with _lock:
+        data = _read()
+        s = data.get("settings", {})
+        s.update(patch)
+        s["updated_at"] = _now()
+        data["settings"] = s
+        _write(data)
+        return s
 
 
 def _write(data: dict) -> None:

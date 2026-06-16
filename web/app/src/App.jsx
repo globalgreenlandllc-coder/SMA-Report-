@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { api, token } from "./api.js";
 import AuthScreen from "./components/AuthScreen.jsx";
 import AccountPanel from "./components/AccountPanel.jsx";
+import AdminPanel from "./components/AdminPanel.jsx";
 import PricePanel from "./components/PricePanel.jsx";
+import SmartSummary from "./components/SmartSummary.jsx";
+import ReportActions from "./components/ReportActions.jsx";
 import CompList from "./components/CompList.jsx";
 import MiniMap from "./components/MiniMap.jsx";
 import TrendsPanel from "./components/TrendsPanel.jsx";
@@ -22,6 +25,9 @@ export default function App() {
   const [agent, setAgent] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [narrative, setNarrative] = useState(null); // null => use auto-generated
+  const [sourceNote, setSourceNote] = useState("");
 
   const [subject, setSubject] = useState(null);
   const [comps, setComps] = useState(null);
@@ -74,9 +80,24 @@ export default function App() {
   }));
   const selectedComp = compView.find((c) => c.ListingId === selectedId) || null;
 
-  const buildPayload = () => ({ subject, comps, include: includes, method, template, branding });
+  const buildPayload = () => ({
+    subject, comps, include: includes, method, template, branding,
+    narrative: narrative || undefined,
+  });
 
   const logout = () => { token.clear(); setAgent(null); };
+
+  async function pullComps() {
+    setSourceNote("Pulling…");
+    try {
+      const d = await api.getComps(25);
+      setComps(d.comps);
+      setIncludes({});
+      setSourceNote(d.note || `Loaded ${d.comps.length} comps from ${d.source}.`);
+    } catch (e) {
+      setSourceNote("Error: " + e.message);
+    }
+  }
 
   const Num = ({ label, field, step }) => (
     <label className="field tight"><span>{label}</span>
@@ -91,6 +112,7 @@ export default function App() {
         <div><strong>SMA-Report</strong> <span className="muted">Smart CMA</span></div>
         <div className="topbar-right">
           <span className="agent-chip">{branding.agent_name} · {branding.brokerage}</span>
+          {agent.role === "admin" && <button onClick={() => setShowAdmin(true)}>Admin</button>}
           <button onClick={() => setShowAccount(true)}>Account</button>
           <button onClick={logout}>Sign out</button>
         </div>
@@ -129,6 +151,8 @@ export default function App() {
                 </select>
               </label>
             </div>
+            <button className="block ghost" onClick={pullComps}>⟳ Pull comps from MLS</button>
+            {sourceNote && <div className="muted small" style={{ marginTop: 6 }}>{sourceNote}</div>}
           </div>
 
           <MiniMap subject={subject} comps={compView} hoverId={hoverId} selectedId={selectedId} onHover={setHoverId} onSelect={setSelectedId} />
@@ -137,6 +161,7 @@ export default function App() {
 
         <main className="col center">
           <PricePanel result={result} loading={loading} />
+          <SmartSummary result={result} narrative={narrative} onNarrative={setNarrative} />
           <CompList comps={compView} includes={includes} onToggle={toggle} onHover={setHoverId} onSelect={setSelectedId} selectedId={selectedId} />
         </main>
 
@@ -154,6 +179,7 @@ export default function App() {
               {tab === "Compare" && <CompCompare subject={subject} comp={selectedComp} />}
             </div>
           </div>
+          <ReportActions buildPayload={buildPayload} />
           <SharePanel buildPayload={buildPayload} />
         </aside>
       </div>
@@ -166,6 +192,7 @@ export default function App() {
         <AccountPanel agent={agent} onClose={() => setShowAccount(false)}
           onBrandingSaved={(b) => setAgent((a) => ({ ...a, branding: b }))} />
       )}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
     </div>
   );
 }
