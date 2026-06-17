@@ -39,6 +39,8 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [narrative, setNarrative] = useState(null); // null => use auto-generated
   const [sourceNote, setSourceNote] = useState("");
+  const [addrStatus, setAddrStatus] = useState(null);
+  const [locating, setLocating] = useState(false);
 
   const [subject, setSubject] = useState(null);
   const [comps, setComps] = useState(null);
@@ -112,14 +114,17 @@ export default function App() {
 
   async function locateAddress() {
     const q = (subject.UnparsedAddress || "").trim();
-    if (!q) { setSourceNote("Enter an address first."); return; }
-    setSourceNote("Locating…");
+    if (!q) { setAddrStatus({ ok: false, text: "Enter an address first." }); return; }
+    setLocating(true);
+    setAddrStatus({ ok: true, text: "Locating…" });
     try {
       const r = await api.geocode(q);
       setSubject((s) => ({ ...s, Latitude: r.lat, Longitude: r.lon }));
-      setSourceNote(`📍 Located: ${r.display_name}`);
+      setAddrStatus({ ok: true, text: `📍 ${r.display_name}` });
     } catch (e) {
-      setSourceNote("Couldn't locate that address (" + e.message + ").");
+      setAddrStatus({ ok: false, text: "Couldn't locate that address (" + e.message + ")." });
+    } finally {
+      setLocating(false);
     }
   }
 
@@ -139,14 +144,18 @@ export default function App() {
         <aside className="col left">
           <div className="card">
             <h3>Subject property</h3>
-            <label className="field tight"><span>Address</span>
+            <div className="field tight">
+              <span>Address</span>
               <div className="addr-row">
                 <input value={subject.UnparsedAddress || ""}
                   onChange={(e) => setSubjField("UnparsedAddress", e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") locateAddress(); }} />
-                <button type="button" onClick={locateAddress} title="Find on map">📍</button>
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); locateAddress(); } }} />
+                <button type="button" className="primary" onClick={locateAddress} disabled={locating}>
+                  {locating ? "…" : "Find"}
+                </button>
               </div>
-            </label>
+              {addrStatus && <div className={"addr-status " + (addrStatus.ok ? "ok" : "bad")}>{addrStatus.text}</div>}
+            </div>
             <div className="grid2">
               <NumberField label="Living area (sqft)" value={subject.LivingArea} onChange={(v) => setSubjField("LivingArea", v)} />
               <NumberField label="Year built" value={subject.YearBuilt} onChange={(v) => setSubjField("YearBuilt", v)} />

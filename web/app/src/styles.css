@@ -176,7 +176,10 @@ button:disabled { opacity: .5; cursor: default; }
 /* ---------- address + minimap ---------- */
 .addr-row { display: flex; gap: 6px; }
 .addr-row input { flex: 1; }
-.addr-row button { padding: 0 12px; border-radius: var(--radius-sm); }
+.addr-row button { padding: 0 14px; border-radius: var(--radius-sm); white-space: nowrap; }
+.addr-status { font-size: 12px; margin-top: 6px; }
+.addr-status.ok { color: var(--good); }
+.addr-status.bad { color: var(--bad); }
 .minimap { display: block; border-radius: 12px; }
 
 /* ---------- trends ---------- */
