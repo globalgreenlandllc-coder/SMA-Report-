@@ -38,6 +38,15 @@ unreachable.
 
 ### Agent web app (interactive)
 
+One command starts both the API and the UI (installs deps on first run; Ctrl+C
+stops both):
+
+```bash
+./run.sh                 # then open http://localhost:5173
+```
+
+Or start them separately:
+
 ```bash
 # 1) backend API (serves the engine + shareable reports)
 python web/server.py                         # http://localhost:8000
