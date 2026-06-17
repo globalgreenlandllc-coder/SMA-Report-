@@ -100,18 +100,28 @@ export default function App() {
 
   const logout = () => { token.clear(); setAgent(null); };
 
-  async function pullComps() {
-    setSourceNote("Pulling…");
+  function compParams(extra) {
+    return {
+      address: subject.UnparsedAddress || "",
+      sqft: subject.LivingArea, beds: subject.BedroomsTotal,
+      baths: subject.BathroomsTotalInteger, ...extra,
+    };
+  }
+
+  async function pullComps(extra) {
+    setSourceNote("Pulling comps…");
     try {
-      const d = await api.getComps(25);
+      const d = await api.getComps(compParams(extra));
       setComps(d.comps);
       setIncludes({});
-      setSourceNote(d.note || `Loaded ${d.comps.length} comps from ${d.source}.`);
+      const tag = d.meta?.demo ? " (demo — illustrative, not real MLS)" : "";
+      setSourceNote(`Loaded ${d.comps.length} comps from ${d.source}${tag}.`);
     } catch (e) {
       setSourceNote("Error: " + e.message);
     }
   }
 
+  // Find = geocode the address, then pull comps for that location in one step.
   async function locateAddress() {
     const q = (subject.UnparsedAddress || "").trim();
     if (!q) { setAddrStatus({ ok: false, text: "Enter an address first." }); return; }
@@ -121,6 +131,7 @@ export default function App() {
       const r = await api.geocode(q);
       setSubject((s) => ({ ...s, Latitude: r.lat, Longitude: r.lon }));
       setAddrStatus({ ok: true, text: `📍 ${r.display_name}` });
+      await pullComps({ lat: r.lat, lng: r.lon });
     } catch (e) {
       setAddrStatus({ ok: false, text: "Couldn't locate that address (" + e.message + ")." });
     } finally {

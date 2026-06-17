@@ -127,41 +127,61 @@ def _apply_source_env(s: dict) -> None:
 _SOURCE_CACHE = {}  # source -> (fetched_at, comps, meta); respects refresh TTL
 
 
-def _load_source_comps(limit: int = 25, force: bool = False):
+def _load_source_comps(limit: int = 25, force: bool = False, near: dict = None):
     """
     Pull comps from the admin-configured source, enforce per-MLS display rules,
     and respect the source's refresh TTL via a small cache. Falls back to sample
-    data on failure. Returns (comps, source, meta).
+    data on failure. ``near`` = {lat, lng, address, subject} drives location-aware
+    comps (real geo for live feeds; illustrative demo comps for the sample source).
+    Returns (comps, source, meta).
     """
     from data.display_rules import apply_rules, rules_for
 
     settings = store.get_settings()
     _apply_source_env(settings)
     source = (settings.get("data_source") or "sample").lower()
+    near = near or {}
+    has_loc = near.get("lat") is not None and near.get("lng") is not None
 
+    # Location-specific results must not be served from the global cache.
+    use_cache = not (force or has_loc)
     ttl = float(rules_for(source, settings).get("refresh_minutes") or 0) * 60
     cached = _SOURCE_CACHE.get(source)
-    if not force and cached and ttl and (time.time() - cached[0] < ttl):
+    if use_cache and cached and ttl and (time.time() - cached[0] < ttl):
         return cached[1], source, {**cached[2], "cached": True}
 
     note = None
+    demo = False
     try:
         if source == "simplyrets":
             from data.reso_loader import load_comps
-            raw = load_comps(limit=limit)
+            raw = load_comps(limit=limit, q=near.get("address") or None)
         elif source in ("mlsgrid", "trestle"):
             from data.reso_odata_loader import make_loader
             os.environ["RESO_PROVIDER"] = source
             raw = make_loader().load_comps(top=limit)
         else:
-            raw, source = COMPS, "sample"
+            source = "sample"
+            if has_loc or near.get("subject"):
+                from data.demo_comps import generate_demo_comps
+                raw = generate_demo_comps(near.get("address", ""), near.get("lat"),
+                                          near.get("lng"), near.get("subject") or {})
+                demo = True
+            else:
+                raw = COMPS
     except Exception as exc:
         note, raw, source = f"{source} unavailable ({exc}); using sample data.", COMPS, "sample"
 
     kept, meta = apply_rules(raw, source, settings)
     meta["note"] = note
     meta["cached"] = False
-    _SOURCE_CACHE[source] = (time.time(), kept, meta)
+    meta["demo"] = demo
+    if demo:
+        meta["disclaimer"] = ("Illustrative demo comparables generated near this "
+                              "address — NOT real MLS data. Connect a live MLS source "
+                              "(Admin) for real comps.")
+    if use_cache:
+        _SOURCE_CACHE[source] = (time.time(), kept, meta)
     return kept, source, meta
 
 
@@ -272,8 +292,22 @@ def cma():
 
 @app.get("/api/comps")
 def comps_from_source():
-    """Pull comps from the admin-configured data source (fallback: sample)."""
-    comps, source, meta = _load_source_comps(limit=int(request.args.get("limit", 25)))
+    """Pull comps from the admin-configured data source (fallback: sample).
+    Optional query: lat, lng, address, sqft, beds, baths -> location-aware comps."""
+    a = request.args
+    near = None
+    if a.get("lat") or a.get("address"):
+        near = {
+            "lat": float(a["lat"]) if a.get("lat") else None,
+            "lng": float(a["lng"]) if a.get("lng") else None,
+            "address": a.get("address", ""),
+            "subject": {
+                "LivingArea": a.get("sqft"), "BedroomsTotal": a.get("beds"),
+                "BathroomsTotalInteger": a.get("baths"),
+                "Latitude": a.get("lat"), "Longitude": a.get("lng"),
+            },
+        }
+    comps, source, meta = _load_source_comps(limit=int(a.get("limit", 25)), near=near)
     return jsonify({"comps": comps, "source": source, "meta": meta, "note": meta.get("note")})
 
 

@@ -50,7 +50,13 @@ export const api = {
   // leads
   listLeads: () => req("/api/leads", "GET"),
   // data source
-  getComps: (limit = 25) => req(`/api/comps?limit=${limit}`, "GET"),
+  getComps: (opts = {}) => {
+    const p = new URLSearchParams({ limit: opts.limit || 25 });
+    for (const k of ["lat", "lng", "address", "sqft", "beds", "baths"]) {
+      if (opts[k] != null && opts[k] !== "") p.set(k, opts[k]);
+    }
+    return req(`/api/comps?${p.toString()}`, "GET");
+  },
   geocode: (q) => req(`/api/geocode?q=${encodeURIComponent(q)}`, "GET"),
   // billing
   getBilling: () => req("/api/billing", "GET"),
